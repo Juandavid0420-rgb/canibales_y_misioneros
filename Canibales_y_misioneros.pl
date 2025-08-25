@@ -1,10 +1,10 @@
 % ==========================================================
 %  Problema de Misioneros y Caníbales
 %  Búsqueda por Amplitud Limitada (2 hijos por turno)
-%  Versión didáctica con nombres en español
+%  Ejecutar: resolver(Camino).
 % ==========================================================
 
-:- use_module(library(apply)).   
+:- use_module(library(apply)).
 :- dynamic visitado/1.            % conjunto de estados ya visitados
 
 % ----------------- Parámetros del problema -----------------
@@ -28,99 +28,107 @@ estado_meta(estado(0,0,derecha)).
 % ----------------- Punto de entrada -----------------
 
 resolver(Camino) :-
-    retractall(visitado(_)),                                
-    estado_inicial(EstadoInicial),                         
-    generar_hijos(EstadoInicial, HijosIniciales),           
-    assertz(visitado(EstadoInicial)),                       
-    amplitud_limitada([nodo(EstadoInicial, [EstadoInicial], HijosIniciales)], 
-                      CaminoReves),                         
-    reverse(CaminoReves, Camino),                          
-    mostrar_camino(Camino).                                 
+    retractall(visitado(_)),
+    estado_inicial(EstadoInicial),
+    generar_hijos(EstadoInicial, HijosIniciales),
+    assertz(visitado(EstadoInicial)),
+    amplitud_limitada([nodo(EstadoInicial, [EstadoInicial], HijosIniciales)],
+                      CaminoInvertido),
+    reverse(CaminoInvertido, Camino),
+    mostrar_camino(Camino).
 
 % ----------------- Búsqueda por Amplitud Limitada -----------------
 
-amplitud_limitada([nodo(Estado, Camino, _Pendientes)|_], Camino) :-
+amplitud_limitada([nodo(Estado, Camino, _HijosNoUsados)|_], Camino) :-
     estado_meta(Estado), !.
 
-amplitud_limitada([nodo(Estado, Camino, HijosPendientes)|ColaResto], Solucion) :-
-    tomar_dos_hijos(HijosPendientes, HijosAhora, HijosRestantes),          
-    encolar_hijos(HijosAhora, Camino, NuevosNodos),                        
-    ( HijosRestantes = [] ->
-        Cola1 = ColaResto                                   
-    ;   agregar_final(ColaResto, [nodo(Estado, Camino, HijosRestantes)], Cola1)
+amplitud_limitada([nodo(Estado, Camino, HijosPorExpandir)|ColaResto], Solucion) :-
+    tomar_dos_hijos(HijosPorExpandir, HijosSeleccionados, HijosPendientesDespues),
+    encolar_hijos(HijosSeleccionados, Camino, NuevosNodos),
+    ( HijosPendientesDespues = [] ->
+        ColaIntermedia = ColaResto
+    ;   agregar_final(ColaResto,
+                      [nodo(Estado, Camino, HijosPendientesDespues)],
+                      ColaIntermedia)
     ),
-    agregar_final(Cola1, NuevosNodos, Cola2),                               
-    amplitud_limitada(Cola2, Solucion).                                     
+    agregar_final(ColaIntermedia, NuevosNodos, ColaActualizada),
+    amplitud_limitada(ColaActualizada, Solucion).
 
 % ----------------- Utilidades de cola -----------------
 
 agregar_final(Cola, Elementos, ColaNueva) :- append(Cola, Elementos, ColaNueva).
 
 tomar_dos_hijos([], [], []).
-tomar_dos_hijos([A], [A], []).
-tomar_dos_hijos([A,B|Resto], [A,B], Resto).
+tomar_dos_hijos([Hijo1], [Hijo1], []).
+tomar_dos_hijos([Hijo1,Hijo2|Restantes], [Hijo1,Hijo2], Restantes).
 
 % ----------------- Generación y encolado de hijos -----------------
 
-encolar_hijos([], _Camino, []).
-encolar_hijos([Hijo|Mas], CaminoPadre, NodosSalida) :-
+encolar_hijos([], _CaminoHastaPadre, []).
+encolar_hijos([Hijo|OtrosHijos], CaminoHastaPadre, NodosSalida) :-
     ( visitado(Hijo) ->
-        encolar_hijos(Mas, CaminoPadre, NodosSalida)
-    ;   assertz(visitado(Hijo)),                    
-        generar_hijos(Hijo, Nietos),                
-        Nodo = nodo(Hijo, [Hijo|CaminoPadre], Nietos),
-        encolar_hijos(Mas, CaminoPadre, ColaNuevos),
-        NodosSalida = [Nodo|ColaNuevos]
+        encolar_hijos(OtrosHijos, CaminoHastaPadre, NodosSalida)
+    ;   assertz(visitado(Hijo)),
+        generar_hijos(Hijo, Nietos),
+        Nodo = nodo(Hijo, [Hijo|CaminoHastaPadre], Nietos),
+        encolar_hijos(OtrosHijos, CaminoHastaPadre, NuevosDelResto),
+        NodosSalida = [Nodo|NuevosDelResto]
     ).
 
-% ----------------- Sucesores legales -----------------
+% ----------------- Sucesores -----------------
 
 generar_hijos(Estado, Hijos) :-
     findall(Siguiente,
             ( sucesor(Estado, Siguiente),
               estado_seguro(Siguiente)
             ),
-            Todos),
-    sort(Todos, Unicos),
-    exclude(visitado, Unicos, Hijos).
+            TodosLosSucesores),
+    sort(TodosLosSucesores, SucesoresSinDuplicados),
+    exclude(visitado, SucesoresSinDuplicados, Hijos).
 
-sucesor(estado(MisionerosIzq,CanibalesIzq,izquierda),
-        estado(NuevosM, NuevosC, derecha)) :-
-    movimientos(Movs),
-    member((M,C), Movs),
-    NuevosM is MisionerosIzq - M, 
-    NuevosC is CanibalesIzq - C,
-    dentro_limites(NuevosM, NuevosC).
+% Barca en la izquierda: restar lo que se mueve desde la izquierda
+sucesor(estado(MisionerosIzq, CanibalesIzq, izquierda),
+        estado(NuevosMisionerosIzq, NuevosCanibalesIzq, derecha)) :-
+    movimientos(ListaMovimientos),
+    member((MisionerosMover, CanibalesMover), ListaMovimientos),
+    NuevosMisionerosIzq is MisionerosIzq - MisionerosMover,
+    NuevosCanibalesIzq is CanibalesIzq - CanibalesMover,
+    dentro_limites(NuevosMisionerosIzq, NuevosCanibalesIzq).
 
-sucesor(estado(MisionerosIzq,CanibalesIzq,derecha),
-        estado(NuevosM, NuevosC, izquierda)) :-
-    movimientos(Movs),
-    member((M,C), Movs),
-    NuevosM is MisionerosIzq + M, 
-    NuevosC is CanibalesIzq + C,
-    dentro_limites(NuevosM, NuevosC).
+% Barca en la derecha: sumar lo que regresa a la izquierda
+sucesor(estado(MisionerosIzq, CanibalesIzq, derecha),
+        estado(NuevosMisionerosIzq, NuevosCanibalesIzq, izquierda)) :-
+    movimientos(ListaMovimientos),
+    member((MisionerosMover, CanibalesMover), ListaMovimientos),
+    NuevosMisionerosIzq is MisionerosIzq + MisionerosMover,
+    NuevosCanibalesIzq is CanibalesIzq + CanibalesMover,
+    dentro_limites(NuevosMisionerosIzq, NuevosCanibalesIzq).
 
 dentro_limites(MisionerosIzq, CanibalesIzq) :-
-    total_misioneros(Tm), total_canibales(Tc),
-    MisionerosIzq >= 0, CanibalesIzq >= 0, 
-    MisionerosIzq =< Tm, CanibalesIzq =< Tc.
+    total_misioneros(TotalMisioneros),
+    total_canibales(TotalCanibales),
+    MisionerosIzq >= 0, CanibalesIzq >= 0,
+    MisionerosIzq =< TotalMisioneros, CanibalesIzq =< TotalCanibales.
 
 estado_seguro(estado(MisionerosIzq, CanibalesIzq, _)) :-
-    total_misioneros(Tm), total_canibales(Tc),
-    MisionerosDer is Tm - MisionerosIzq, 
-    CanibalesDer is Tc - CanibalesIzq,
+    total_misioneros(TotalMisioneros),
+    total_canibales(TotalCanibales),
+    MisionerosDer is TotalMisioneros - MisionerosIzq,
+    CanibalesDer is TotalCanibales - CanibalesIzq,
     (MisionerosIzq = 0 ; MisionerosIzq >= CanibalesIzq),
     (MisionerosDer = 0 ; MisionerosDer >= CanibalesDer).
 
 % ----------------- Impresión de la solución -----------------
 
 mostrar_camino(Camino) :-
-    nl, write('Solucion en '), length(Camino,N), write(N), write(' estados:'), nl,
+    nl, write('Solucion en '), length(Camino, NumeroEstados),
+    write(NumeroEstados), write(' estados:'), nl,
     maplist(imprimir_estado, Camino), nl.
 
-imprimir_estado(estado(MisionerosIzq,CanibalesIzq,Barca)) :-
-    total_misioneros(Tm), total_canibales(Tc),
-    MisionerosDer is Tm - MisionerosIzq, 
-    CanibalesDer is Tc - CanibalesIzq,
-    format('Izq: M=~w C=~w  |  Der: M=~w C=~w  | Barca=~w~n', 
-          [MisionerosIzq,CanibalesIzq,MisionerosDer,CanibalesDer,Barca]).
+imprimir_estado(estado(MisionerosIzq, CanibalesIzq, Barca)) :-
+    total_misioneros(TotalMisioneros),
+    total_canibales(TotalCanibales),
+    MisionerosDer is TotalMisioneros - MisionerosIzq,
+    CanibalesDer is TotalCanibales - CanibalesIzq,
+    format('Izq: M=~w C=~w  |  Der: M=~w C=~w  | Barca=~w~n',
+          [MisionerosIzq, CanibalesIzq, MisionerosDer, CanibalesDer, Barca]).
